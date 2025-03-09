@@ -40,7 +40,7 @@ const App: React.FC = () => {
             <Route
               path="/student/dashboard"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute studentOnly>
                   {" "}
                   <Dashboard />{" "}
                 </ProtectedRoute>
@@ -49,7 +49,7 @@ const App: React.FC = () => {
             <Route
               path="/student/dashboard/register-device"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute studentOnly>
                   <RegisterDevice />
                 </ProtectedRoute>
               }
@@ -57,7 +57,7 @@ const App: React.FC = () => {
             <Route
               path="/student/dashboard/devices"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute studentOnly>
                   {" "}
                   <DeviceList />{" "}
                 </ProtectedRoute>
@@ -66,7 +66,7 @@ const App: React.FC = () => {
             <Route
               path="/student/dashboard/report-lost"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute studentOnly>
                   <ReportDevice />
                 </ProtectedRoute>
               }
@@ -74,7 +74,7 @@ const App: React.FC = () => {
             <Route
               path="/student/profile"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute studentOnly>
                   {" "}
                   <Profile />{" "}
                 </ProtectedRoute>

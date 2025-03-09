@@ -1,5 +1,6 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // src/pages/staff/StaffProfile.tsx
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -7,6 +8,9 @@ import { StaffDashboardLayout } from '../components/layout/StaffDashboardLayout'
 import { FormInput } from '../components/common/FormInput';
 import { UserCircleIcon, CameraIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
+import { useSupabase } from '../context/SupabaseContext';
+import { getProfile, updateProfile } from '../services/profileService';
+import { supabase } from '../lib/supabase';
 
 // Define the form schema with zod
 const staffProfileSchema = z.object({
@@ -23,70 +27,191 @@ const staffProfileSchema = z.object({
 type StaffProfileForm = z.infer<typeof staffProfileSchema>;
 
 export const StaffProfile = () => {
-  // Mock staff data - replace with actual data from API/context
-  const [staffData, setStaffData] = useState({
-    name: 'Dr. Sarah Wilson',
-    staffId: 'STAFF-12345',
-    email: 'sarah.wilson@staff.edu',
-    phone: '+1234567890',
-    department: 'Information Technology',
-    role: 'Admin Staff',
-    profileImage: null as string | null,
-    biography: 'Device verification specialist with 5+ years of experience in IT security and device management.'
-  });
-
   const [isEditing, setIsEditing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const { user, profile: contextProfile } = useSupabase();
 
   const {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
-    reset
+    reset,
+    setValue
   } = useForm<StaffProfileForm>({
     resolver: zodResolver(staffProfileSchema),
     defaultValues: {
-      name: staffData.name,
-      staffId: staffData.staffId,
-      email: staffData.email,
-      phone: staffData.phone,
-      department: staffData.department,
-      role: staffData.role,
-      biography: staffData.biography,
+      name: '',
+      staffId: '',
+      email: '',
+      phone: '',
+      department: '',
+      role: '',
+      biography: ''
     }
   });
 
-  const onSubmit = async (formData: StaffProfileForm) => {
+  // Fetch staff profile data
+  useEffect(() => {
+    const fetchProfileData = async () => {
+      if (!user) return;
+      
+      try {
+        setLoading(true);
+        
+        // If we already have profile data in context, use that
+        if (contextProfile) {
+          setValue('name', contextProfile.full_name || '');
+          setValue('email', contextProfile.email || '');
+          setValue('staffId', contextProfile.staff_id || '');
+          setValue('phone', contextProfile.phone_number || '');
+          setValue('department', contextProfile.department || '');
+          setValue('role', contextProfile.role === 'staff' ? 'Staff' : '');
+          setValue('biography', contextProfile.biography || '');
+          setProfileImage(null); // Set profile image if available
+          setLoading(false);
+          return;
+        }
+        
+        // Otherwise fetch from API
+        const { data, error } = await getProfile(user.id);
+        
+        if (error) throw error;
+        
+        if (data) {
+          // Set form values
+          setValue('name', data.full_name || '');
+          setValue('email', data.email || '');
+          setValue('staffId', data.staff_id || '');
+          setValue('phone', data.phone_number || '');
+          setValue('department', data.department || '');
+          setValue('role', data.role === 'staff' ? 'Staff' : '');
+          setValue('biography', data.biography || '');
+          setProfileImage(null); // Set profile image if available
+        }
+      } catch (error: any) {
+        toast.error(error.message || 'Failed to load profile data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProfileData();
+  }, [user, contextProfile, setValue]);
+
+  const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      setSelectedImage(file);
+      
+      // Create a preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setProfileImage(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const uploadProfileImage = async (file: File): Promise<string | null> => {
     try {
-      // In a real app, this would be an API call
-      console.log('Updating staff profile:', formData);
+      // Create a unique file name
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}.${fileExt}`;
+      const filePath = `profile-images/${fileName}`;
       
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Upload the file
+      const { error: uploadError } = await supabase.storage
+        .from('gadify')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+        
+      if (uploadError) throw uploadError;
       
-      setStaffData({
-        ...staffData,
-        ...formData
-      });
-      setIsEditing(false);
-      toast.success('Profile updated successfully');
+      // Get public URL
+      const { data: publicUrlData } = await supabase.storage
+        .from('gadify')
+        .getPublicUrl(filePath);
+      
+      return publicUrlData.publicUrl;
     } catch (error) {
-      console.error('Error updating profile:', error);
-      toast.error('Failed to update profile');
+      console.error('Error uploading profile image:', error);
+      return null;
+    }
+  };
+
+  const onSubmit = async (data: StaffProfileForm) => {
+    if (!user) {
+      toast.error('You must be logged in to update your profile');
+      return;
+    }
+    
+    try {
+      // Upload profile image if selected
+      // let imageUrl = null;
+      // if (selectedImage) {
+      //   imageUrl = await uploadProfileImage(selectedImage);
+      // }
+      
+      // Prepare profile data
+      const profileData = {
+        full_name: data.name,
+        staff_id: data.staffId,
+        phone_number: data.phone,
+        department: data.department,
+        biography: data.biography,
+        // Don't update email as it's managed by auth
+        // Don't update role as it should remain 'staff'
+      };
+      
+      // Add image URL if we got one
+      // if (imageUrl) {
+      //   profileData['profile_image'] = imageUrl;
+      // }
+      
+      // Update profile
+      const { error } = await updateProfile(user.id, profileData);
+      
+      if (error) throw error;
+      
+      toast.success('Profile updated successfully');
+      setIsEditing(false);
+      setSelectedImage(null);
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to update profile');
     }
   };
   
   const handleCancelEdit = () => {
     setIsEditing(false);
-    reset({
-      name: staffData.name,
-      staffId: staffData.staffId,
-      email: staffData.email,
-      phone: staffData.phone,
-      department: staffData.department,
-      role: staffData.role,
-      biography: staffData.biography,
-    });
+    setSelectedImage(null);
+    
+    // Reset form to original values
+    if (contextProfile) {
+      setValue('name', contextProfile.full_name || '');
+      setValue('staffId', contextProfile.staff_id || '');
+      setValue('phone', contextProfile.phone_number || '');
+      setValue('department', contextProfile.department || '');
+      setValue('biography', contextProfile.biography || '');
+    }
+    
+    // Reset image preview if needed
+    setProfileImage(null); // Reset to original profile image
   };
+
+  if (loading) {
+    return (
+      <StaffDashboardLayout>
+        <div className="py-12 text-center">
+          <div className="spinner"></div>
+          <p className="mt-4 text-gray-600">Loading profile data...</p>
+        </div>
+      </StaffDashboardLayout>
+    );
+  }
 
   return (
     <StaffDashboardLayout>
@@ -103,11 +228,11 @@ export const StaffProfile = () => {
           <div className="bg-blue-700 h-32 relative">
             <div className="absolute -bottom-16 left-8">
               <div className="relative">
-                {staffData.profileImage ? (
+                {profileImage ? (
                   <img 
-                    src={staffData.profileImage} 
-                    alt={staffData.name} 
-                    className="h-32 w-32 rounded-full border-4 border-white bg-white"
+                    src={profileImage} 
+                    alt="Profile" 
+                    className="h-32 w-32 rounded-full border-4 border-white bg-white object-cover"
                   />
                 ) : (
                   <div className="h-32 w-32 rounded-full border-4 border-white bg-blue-100 flex items-center justify-center">
@@ -125,7 +250,7 @@ export const StaffProfile = () => {
                       id="profile-image" 
                       className="hidden" 
                       accept="image/*"
-                      onChange={() => toast('Image upload to be implemented')}
+                      onChange={handleImageChange}
                     />
                   </label>
                 )}
@@ -182,6 +307,7 @@ export const StaffProfile = () => {
                     name="role"
                     register={register}
                     error={errors.role?.message}
+                    disabled
                   />
                 </div>
                 
@@ -220,8 +346,8 @@ export const StaffProfile = () => {
               <div className="space-y-6">
                 <div className="flex justify-between items-start">
                   <div>
-                    <h2 className="text-2xl font-bold text-gray-900">{staffData.name}</h2>
-                    <p className="text-blue-600">{staffData.role}</p>
+                    <h2 className="text-2xl font-bold text-gray-900">{contextProfile?.full_name || 'Staff Member'}</h2>
+                    <p className="text-blue-600">{contextProfile?.role === 'staff' ? 'Staff' : ''}</p>
                   </div>
                   <button
                     onClick={() => setIsEditing(true)}
@@ -234,26 +360,28 @@ export const StaffProfile = () => {
                 <div className="border-t border-gray-200 pt-6 grid grid-cols-1 md:grid-cols-2 gap-y-6 gap-x-8">
                   <div>
                     <h3 className="text-sm font-medium text-gray-500">Staff ID</h3>
-                    <p className="mt-1 text-sm text-gray-900">{staffData.staffId}</p>
+                    <p className="mt-1 text-sm text-gray-900">{contextProfile?.staff_id || 'Not set'}</p>
                   </div>
                   <div>
                     <h3 className="text-sm font-medium text-gray-500">Email Address</h3>
-                    <p className="mt-1 text-sm text-gray-900">{staffData.email}</p>
+                    <p className="mt-1 text-sm text-gray-900">{contextProfile?.email || 'Not set'}</p>
                   </div>
                   <div>
                     <h3 className="text-sm font-medium text-gray-500">Phone Number</h3>
-                    <p className="mt-1 text-sm text-gray-900">{staffData.phone}</p>
+                    <p className="mt-1 text-sm text-gray-900">{contextProfile?.phone_number || 'Not set'}</p>
                   </div>
                   <div>
                     <h3 className="text-sm font-medium text-gray-500">Department</h3>
-                    <p className="mt-1 text-sm text-gray-900">{staffData.department}</p>
+                    <p className="mt-1 text-sm text-gray-900">{contextProfile?.department || 'Not set'}</p>
                   </div>
                 </div>
                 
-                <div className="border-t border-gray-200 pt-6">
-                  <h3 className="text-sm font-medium text-gray-500">Biography</h3>
-                  <p className="mt-1 text-sm text-gray-900">{staffData.biography}</p>
-                </div>
+                {contextProfile?.biography && (
+                  <div className="border-t border-gray-200 pt-6">
+                    <h3 className="text-sm font-medium text-gray-500">Biography</h3>
+                    <p className="mt-1 text-sm text-gray-900">{contextProfile.biography}</p>
+                  </div>
+                )}
               </div>
             )}
           </div>

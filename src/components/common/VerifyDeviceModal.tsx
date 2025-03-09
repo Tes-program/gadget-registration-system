@@ -1,4 +1,4 @@
-// src/components/staff/VerifyDeviceModal.tsx
+// src/components/common/VerifyDeviceModal.tsx
 import { useState } from 'react';
 import { Modal } from '../common/Modal';
 import toast from 'react-hot-toast';
@@ -12,6 +12,10 @@ interface VerifyDeviceModalProps {
     studentName: string;
     serialNumber: string;
     matricNumber: string;
+    imageUrl?: string;
+    brand?: string;
+    model?: string;
+    type?: string;
   };
   onVerify: (deviceId: string, notes: string) => Promise<void>;
 }
@@ -21,12 +25,16 @@ export const VerifyDeviceModal = ({ isOpen, onClose, device, onVerify }: VerifyD
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleVerify = async () => {
+    if (isSubmitting) return;
+    
     setIsSubmitting(true);
     try {
       await onVerify(device.id, notes);
+      toast.success(`${device.deviceName} has been verified successfully`);
       onClose();
     } catch (error) {
       console.error('Error verifying device:', error);
+      // Toast error is handled in the parent component
     } finally {
       setIsSubmitting(false);
     }
@@ -59,6 +67,17 @@ export const VerifyDeviceModal = ({ isOpen, onClose, device, onVerify }: VerifyD
           </div>
         </div>
 
+        {/* Device Image */}
+        {device.imageUrl && (
+          <div className="aspect-w-16 aspect-h-9">
+            <img
+              src={device.imageUrl}
+              alt={device.deviceName}
+              className="object-cover rounded-lg"
+            />
+          </div>
+        )}
+
         <div className="border-t border-b border-gray-200 py-4">
           <dl className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
             <div>
@@ -69,6 +88,24 @@ export const VerifyDeviceModal = ({ isOpen, onClose, device, onVerify }: VerifyD
               <dt className="text-sm font-medium text-gray-500">Serial Number</dt>
               <dd className="mt-1 text-sm text-gray-900">{device.serialNumber}</dd>
             </div>
+            {device.brand && (
+              <div>
+                <dt className="text-sm font-medium text-gray-500">Brand</dt>
+                <dd className="mt-1 text-sm text-gray-900">{device.brand}</dd>
+              </div>
+            )}
+            {device.model && (
+              <div>
+                <dt className="text-sm font-medium text-gray-500">Model</dt>
+                <dd className="mt-1 text-sm text-gray-900">{device.model}</dd>
+              </div>
+            )}
+            {device.type && (
+              <div>
+                <dt className="text-sm font-medium text-gray-500">Type</dt>
+                <dd className="mt-1 text-sm text-gray-900">{device.type}</dd>
+              </div>
+            )}
             <div>
               <dt className="text-sm font-medium text-gray-500">Student Name</dt>
               <dd className="mt-1 text-sm text-gray-900">{device.studentName}</dd>

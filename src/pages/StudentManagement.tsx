@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // src/pages/staff/StudentManagement.tsx
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { StaffDashboardLayout } from '../components/layout/StaffDashboardLayout';
 import { 
   MagnifyingGlassIcon,
@@ -10,6 +10,9 @@ import {
 } from '@heroicons/react/24/outline';
 import { Modal } from '../components/common/Modal';
 import toast from 'react-hot-toast';
+import { useSupabase } from '../context/SupabaseContext';
+import { supabase } from '../lib/supabase';
+import { getAllStudents, updateStudentStatus } from '../services/profileService';
 
 interface Student {
   id: string;
@@ -239,68 +242,79 @@ const ConfirmStatusChangeModal = ({ isOpen, onClose, student, onConfirm }: {
 // Main StudentManagement component
 export const StudentManagement = () => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | Student['status']>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'suspended' | 'graduated'>('all');
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [studentToChangeStatus, setStudentToChangeStatus] = useState<Student | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { user } = useSupabase();
   const itemsPerPage = 10;
 
-  // Mock data - replace with API call
-  const [students, setStudents] = useState<Student[]>([
-    {
-      id: '1',
-      name: 'John Doe',
-      matricNumber: '21/3157',
-      email: 'john.doe@student.edu',
-      department: 'Computer Science',
-      level: '300',
-      registeredDevices: 2,
-      reportedDevices: 0,
-      status: 'active',
-      lastActive: '2024-02-20T10:30:00'
-    },
-    {
-      id: '2',
-      name: 'Jane Smith',
-      matricNumber: '21/1182',
-      email: 'jane.smith@student.edu',
-      department: 'Electrical Engineering',
-      level: '400',
-      registeredDevices: 1,
-      reportedDevices: 1,
-      status: 'suspended',
-      lastActive: '2024-02-18T14:15:00'
-    },
-    {
-      id: '3',
-      name: 'Michael Johnson',
-      matricNumber: '22/1066',
-      email: 'michael.j@student.edu',
-      department: 'Medicine',
-      level: '500',
-      registeredDevices: 3,
-      reportedDevices: 0,
-      status: 'active',
-      lastActive: '2024-02-19T09:45:00'
-    },
-    {
-      id: '4',
-      name: 'Sarah Williams',
-      matricNumber: '20/2247',
-      email: 'sarah.w@student.edu',
-      department: 'Business Administration',
-      level: '400',
-      registeredDevices: 2,
-      reportedDevices: 0,
-      status: 'graduated',
-      lastActive: '2023-12-15T11:20:00'
-    }
-  ]);
+  // Fetch students data
+  useEffect(() => {
+    const fetchStudents = async () => {
+      if (!user) return;
+      
+      try {
+        setLoading(true);
+        
+        // Fetch all student profiles
+        const { data: profilesData, error: profilesError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('role', 'student');
+        
+        if (profilesError) throw profilesError;
+        
+        // Fetch all devices to count per student
+        const { data: devicesData, error: devicesError } = await supabase
+          .from('devices')
+          .select('*');
+        
+        if (devicesError) throw devicesError;
+        
+        // Process the data
+        const formattedStudents = await Promise.all((profilesData || []).map(async (profile) => {
+          // Count devices for this student
+          const studentDevices = devicesData?.filter(device => device.user_id === profile.id) || [];
+          const registeredDevices = studentDevices.length;
+          const reportedDevices = studentDevices.filter(device => device.status === 'reported').length;
+          
+          // Fetch last login time from auth.users if available
+          const lastActive = profile.updated_at || profile.created_at;
+          
+          return {
+            id: profile.id,
+            name: profile.full_name || 'Unknown',
+            matricNumber: profile.matric_number || 'Unknown',
+            email: profile.email || 'Unknown',
+            department: profile.department || 'Unknown',
+            level: profile.study_level || 'Unknown',
+            registeredDevices,
+            reportedDevices,
+            status: profile.status || 'active',
+            lastActive
+          } as Student;
+        }));
+        
+        setStudents(formattedStudents);
+      } catch (error: any) {
+        console.error('Error fetching students:', error);
+        toast.error('Failed to load students');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchStudents();
+  }, [user]);
 
   const handleStatusChange = async (studentId: string, newStatus: Student['status']) => {
     try {
-      // In a real app, this would be an API call
-      console.log(`Changing status of student ${studentId} to ${newStatus}`);
+      const { error } = await updateStudentStatus(studentId, newStatus);
+      
+      if (error) throw error;
       
       // Update the local state
       setStudents(prevStudents => 
@@ -315,9 +329,9 @@ export const StudentManagement = () => {
       setSelectedStudent(null);
       setStudentToChangeStatus(null);
       return Promise.resolve();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error changing student status:', error);
-      toast.error('Failed to update student status');
+      toast.error(error.message || 'Failed to update student status');
       return Promise.reject(error);
     }
   };
@@ -331,6 +345,39 @@ export const StudentManagement = () => {
       case 'graduated':
         return 'bg-gray-100 text-gray-800';
     }
+  };
+
+  const handleExportCSV = () => {
+    // Create CSV content from filtered students
+    const headers = ['Name', 'Matric Number', 'Email', 'Department', 'Level', 'Status', 'Devices', 'Reported'];
+    const csvRows = [
+      headers.join(','),
+      ...filteredStudents.map(student => [
+        student.name,
+        student.matricNumber,
+        student.email,
+        student.department,
+        student.level,
+        student.status,
+        student.registeredDevices,
+        student.reportedDevices
+      ].join(','))
+    ];
+    
+    const csvContent = csvRows.join('\n');
+    
+    // Create a blob and download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `students_export_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    toast.success('Export complete');
   };
 
   // Filter and search
@@ -365,9 +412,7 @@ export const StudentManagement = () => {
 
           {/* Export Button */}
           <button
-            onClick={() => {
-              toast('Export functionality will be implemented');
-            }}
+            onClick={handleExportCSV}
             className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
           >
             Export Data
@@ -407,91 +452,109 @@ export const StudentManagement = () => {
 
         {/* Students Table */}
         <div className="bg-white shadow-sm rounded-lg border border-gray-200">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Student Details
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Department
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Devices
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Last Active
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {paginatedStudents.map((student) => (
-                  <tr key={student.id}>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div>
-                          <div className="text-sm font-medium text-gray-900">{student.name}</div>
-                          <div className="text-sm text-gray-500">{student.matricNumber}</div>
-                          <div className="text-sm text-gray-500">{student.email}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{student.department}</div>
-                      <div className="text-sm text-gray-500">{student.level} Level</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center space-x-4">
-                        <div className="flex items-center text-sm text-gray-500">
-                          <DevicePhoneMobileIcon className="h-5 w-5 mr-1" />
-                          {student.registeredDevices}
-                        </div>
-                        {student.reportedDevices > 0 && (
-                          <div className="flex items-center text-sm text-red-500">
-                            <ExclamationTriangleIcon className="h-5 w-5 mr-1" />
-                            {student.reportedDevices}
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(student.status)}`}>
-                        {student.status.charAt(0).toUpperCase() + student.status.slice(1)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {new Date(student.lastActive).toLocaleString()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button
-                        onClick={() => setSelectedStudent(student)}
-                        className="text-blue-600 hover:text-blue-900 mr-4"
-                      >
-                        View Details
-                      </button>
-                      {student.status !== 'graduated' && (
-                        <button
-                          onClick={() => setStudentToChangeStatus(student)}
-                          className={`${
-                            student.status === 'active' ? 'text-red-600 hover:text-red-900' : 'text-green-600 hover:text-green-900'
-                          }`}
-                        >
-                          {student.status === 'active' ? 'Suspend' : 'Activate'}
-                        </button>
-                      )}
-                    </td>
+          {loading ? (
+            <div className="flex items-center justify-center p-12">
+              <div className="spinner"></div>
+            </div>
+          ) : filteredStudents.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Student Details
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Department
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Devices
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Last Active
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {paginatedStudents.map((student) => (
+                    <tr key={student.id}>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center">
+                          <div>
+                            <div className="text-sm font-medium text-gray-900">{student.name}</div>
+                            <div className="text-sm text-gray-500">{student.matricNumber}</div>
+                            <div className="text-sm text-gray-500">{student.email}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{student.department}</div>
+                        <div className="text-sm text-gray-500">{student.level} Level</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center space-x-4">
+                          <div className="flex items-center text-sm text-gray-500">
+                            <DevicePhoneMobileIcon className="h-5 w-5 mr-1" />
+                            {student.registeredDevices}
+                          </div>
+                          {student.reportedDevices > 0 && (
+                            <div className="flex items-center text-sm text-red-500">
+                              <ExclamationTriangleIcon className="h-5 w-5 mr-1" />
+                              {student.reportedDevices}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(student.status)}`}>
+                          {student.status.charAt(0).toUpperCase() + student.status.slice(1)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {new Date(student.lastActive).toLocaleString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <button
+                          onClick={() => setSelectedStudent(student)}
+                          className="text-blue-600 hover:text-blue-900 mr-4"
+                        >
+                          View Details
+                        </button>
+                        {student.status !== 'graduated' && (
+                          <button
+                            onClick={() => setStudentToChangeStatus(student)}
+                            className={`${
+                              student.status === 'active' ? 'text-red-600 hover:text-red-900' : 'text-green-600 hover:text-green-900'
+                            }`}
+                          >
+                            {student.status === 'active' ? 'Suspend' : 'Activate'}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-gray-400 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+              <h3 className="mt-2 text-sm font-medium text-gray-900">No students found</h3>
+              <p className="mt-1 text-sm text-gray-500">
+                {searchTerm || statusFilter !== 'all' 
+                  ? 'Try adjusting your search or filter' 
+                  : 'No students are currently registered in the system'}
+              </p>
+            </div>
+          )}
 
           {/* Pagination */}
           {totalPages > 1 && (

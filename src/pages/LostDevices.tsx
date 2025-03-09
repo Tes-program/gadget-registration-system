@@ -1,5 +1,6 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // src/pages/staff/LostDevices.tsx
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { StaffDashboardLayout } from '../components/layout/StaffDashboardLayout';
 import { 
   MagnifyingGlassIcon, 
@@ -9,6 +10,9 @@ import {
 } from '@heroicons/react/24/outline';
 import { Modal } from '../components/common/Modal';
 import toast from 'react-hot-toast';
+import { useSupabase } from '../context/SupabaseContext';
+import { supabase } from '../lib/supabase';
+import { resolveReport } from '../services/reportService';
 
 interface LostDevice {
   id: string;
@@ -26,21 +30,24 @@ interface LostDevice {
   matricNumber: string;
   studentEmail: string;
   studentPhone: string;
+  deviceId: string;
 }
 
 const LostDeviceDetailsModal = ({ isOpen, onClose, device, onMark }: {
   isOpen: boolean;
   onClose: () => void;
   device: LostDevice;
-  onMark: (deviceId: string, action: 'found' | 'recovered') => Promise<void>;
+  onMark: (reportId: string, deviceId: string, action: 'found' | 'recovered') => Promise<void>;
 }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleMarkAction = async (action: 'found' | 'recovered') => {
     setIsSubmitting(true);
     try {
-      await onMark(device.id, action);
+      await onMark(device.id, device.deviceId, action);
       onClose();
+    } catch (error) {
+      console.error(`Error marking device as ${action}:`, error);
     } finally {
       setIsSubmitting(false);
     }
@@ -167,14 +174,14 @@ const LostDeviceDetailsModal = ({ isOpen, onClose, device, onMark }: {
               disabled={isSubmitting}
               className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-50"
             >
-              Mark as Found
+              {isSubmitting ? 'Processing...' : 'Mark as Found'}
             </button>
             <button
               onClick={() => handleMarkAction('recovered')}
               disabled={isSubmitting}
               className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
             >
-              Mark as Recovered
+              {isSubmitting ? 'Processing...' : 'Mark as Recovered'}
             </button>
           </div>
         </div>
@@ -187,60 +194,144 @@ export const LostDevices = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'lost' | 'stolen'>('all');
   const [selectedDevice, setSelectedDevice] = useState<LostDevice | null>(null);
+  const [lostDevices, setLostDevices] = useState<LostDevice[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { user } = useSupabase();
 
-  // Mock data
-  const [lostDevices, setLostDevices] = useState<LostDevice[]>([
-    {
-      id: '1',
-      deviceName: 'iPhone 13',
-      serialNumber: 'IMEI123456789',
-      brand: 'Apple',
-      model: 'iPhone 13',
-      reportDate: '2024-02-15',
-      incidentDate: '2024-02-14',
-      location: 'University Library',
-      incidentType: 'lost',
-      description: 'Left my phone on a table at the library around 3pm.',
-      studentName: 'John Doe',
-      matricNumber: '21/3157',
-      studentEmail: 'john.doe@student.edu',
-      studentPhone: '+1234567890'
-    },
-    {
-      id: '2',
-      deviceName: 'MacBook Pro',
-      serialNumber: 'C02G23ZTMD6R',
-      brand: 'Apple',
-      model: 'MacBook Pro 2023',
-      reportDate: '2024-02-10',
-      incidentDate: '2024-02-09',
-      location: 'Campus Cafeteria',
-      incidentType: 'stolen',
-      description: 'My laptop was stolen from my bag while I was getting food.',
-      policeReport: 'PR-12345-2024',
-      studentName: 'Jane Smith',
-      matricNumber: '21/1182',
-      studentEmail: 'jane.smith@student.edu',
-      studentPhone: '+0987654321'
-    }
-  ]);
-
-  const handleMarkAction = async (deviceId: string, action: 'found' | 'recovered') => {
-    try {
-      // In a real app, this would be an API call
-      console.log(`Marking device ${deviceId} as ${action}`);
+  // Fetch lost/stolen devices
+  useEffect(() => {
+    const fetchLostDevices = async () => {
+      if (!user) return;
       
-      // Update the local state to remove the device
+      try {
+        setLoading(true);
+        
+        // Fetch active reports
+        const { data: reports, error: reportsError } = await supabase
+          .from('device_reports')
+          .select(`
+            id,
+            device_id,
+            user_id,
+            incident_type,
+            incident_date,
+            location,
+            description,
+            police_report,
+            created_at,
+            status
+          `)
+          .eq('status', 'active')
+          .order('created_at', { ascending: false });
+        
+        if (reportsError) throw reportsError;
+        
+        if (!reports || reports.length === 0) {
+          setLostDevices([]);
+          return;
+        }
+        
+        // Get device details for all reports
+        const deviceIds = reports.map(report => report.device_id);
+        const { data: devices, error: devicesError } = await supabase
+          .from('devices')
+          .select(`
+            id,
+            name,
+            serial_number,
+            brand,
+            model,
+            user_id
+          `)
+          .in('id', deviceIds);
+        
+        if (devicesError) throw devicesError;
+        
+        // Get student details for all reports
+        const userIds = reports.map(report => report.user_id);
+        const { data: students, error: studentsError } = await supabase
+          .from('profiles')
+          .select(`
+            id,
+            full_name,
+            matric_number,
+            email,
+            phone_number
+          `)
+          .in('id', userIds);
+        
+        if (studentsError) throw studentsError;
+        
+        // Combine the data
+        const formattedDevices = reports.map(report => {
+          const device = devices?.find(d => d.id === report.device_id);
+          const student = students?.find(s => s.id === report.user_id);
+          
+          if (!device || !student) return null;
+          
+          return {
+            id: report.id,
+            deviceId: device.id,
+            deviceName: device.name,
+            serialNumber: device.serial_number,
+            brand: device.brand || 'Unknown',
+            model: device.model || 'Unknown',
+            reportDate: report.created_at,
+            incidentDate: report.incident_date,
+            location: report.location,
+            incidentType: report.incident_type,
+            description: report.description,
+            policeReport: report.police_report,
+            studentName: student.full_name || 'Unknown',
+            matricNumber: student.matric_number || 'Unknown',
+            studentEmail: student.email || 'Unknown',
+            studentPhone: student.phone_number || 'Unknown'
+          };
+        }).filter(Boolean) as LostDevice[];
+        
+        setLostDevices(formattedDevices);
+      } catch (error: any) {
+        console.error('Error fetching lost devices:', error);
+        toast.error(error.message || 'Failed to load lost devices');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchLostDevices();
+  }, [user]);
+
+  const handleMarkAction = async (reportId: string, deviceId: string, action: 'found' | 'recovered') => {
+    if (!user) {
+      toast.error('You must be logged in to perform this action');
+      return Promise.reject();
+    }
+    
+    try {
+      // Update the report status
+      const { error: reportError } = await resolveReport(reportId, user.id, action);
+      
+      if (reportError) throw reportError;
+      
+      // If device was found or recovered, update its status back to verified
+      const { error: deviceError } = await supabase
+        .from('devices')
+        .update({ status: 'verified' })
+        .eq('id', deviceId);
+      
+      if (deviceError) throw deviceError;
+      
+      // Update local state
       setLostDevices(prevDevices => 
-        prevDevices.filter(device => device.id !== deviceId)
+        prevDevices.filter(device => device.id !== reportId)
       );
       
       toast.success(`Device marked as ${action}`);
       return Promise.resolve();
-    } catch (error) {
+    } catch (error: any) {
       console.error(`Error marking device as ${action}:`, error);
-      toast.error(`Failed to mark device as ${action}`);
-      return Promise.reject();
+      toast.error(error.message || `Failed to mark device as ${action}`);
+      return Promise.reject(error);
     }
   };
 
@@ -315,7 +406,11 @@ export const LostDevices = () => {
         </div>
 
         {/* Lost Devices */}
-        {filteredDevices.length > 0 ? (
+        {loading ? (
+          <div className="flex items-center justify-center p-12">
+            <div className="spinner"></div>
+          </div>
+        ) : filteredDevices.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredDevices.map((device) => (
               <div

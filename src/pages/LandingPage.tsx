@@ -1,12 +1,17 @@
 // src/pages/landing/LandingPage.tsx
-import { Link, Navigate } from 'react-router-dom';
+import { Link, Navigate, useLocation } from 'react-router-dom';
 import { useSupabase } from '../context/SupabaseContext';
 
 export const LandingPage = () => {
   const { user, profile, loading } = useSupabase();
+  const location = useLocation();
 
-  // If user is authenticated, redirect to appropriate dashboard
-  if (!loading && user) {
+  // Only redirect if we're actually at the root path
+  // This prevents redirecting when refreshing other pages
+  const shouldRedirect = location.pathname === '/';
+
+  // If user is authenticated and we're on the landing page, redirect to appropriate dashboard
+  if (!loading && user && shouldRedirect) {
     if (profile?.role === 'staff') {
       return <Navigate to="/staff/dashboard" />;
     } else {

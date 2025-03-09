@@ -1,5 +1,6 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // src/pages/staff/AllDevices.tsx
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { StaffDashboardLayout } from '../components/layout/StaffDashboardLayout';
 import { 
   MagnifyingGlassIcon,
@@ -11,6 +12,9 @@ import {
 import toast from 'react-hot-toast';
 import { Pagination } from '../components/common/Pagination';
 import { DeviceDetailsModal } from '../components/common/DeviceDetailsModal';
+import { useSupabase } from '../context/SupabaseContext';
+import { getAllDevices, verifyDevice } from '../services/deviceService';
+import { supabase } from '../lib/supabase';
 
 // Types
 type DeviceStatus = 'verified' | 'pending' | 'reported';
@@ -33,42 +37,53 @@ export const AllDevices = () => {
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [totalCount, setTotalCount] = useState(0);
+  const { user } = useSupabase();
   const itemsPerPage = 10;
 
-  // Mock data - replace with API call
-  const devices: Device[] = [
-    {
-      id: '1',
-      name: 'iPhone 13',
-      serialNumber: 'IMEI123456789',
-      type: 'Smartphone',
-      studentName: 'John Doe',
-      matricNumber: '21/3157',
-      registrationDate: '2024-02-20',
-      status: 'pending'
-    },
-    {
-        id: '2',
-        name: 'MacBook Pro 2021',
-        serialNumber: 'S/N123456789',
-        type: 'Laptop',
-        studentName: 'Jane Doe',
-        matricNumber: '21/3158',
-        registrationDate: '2024-02-19',
-        status: 'verified'
-    },
-    {
-        id: '3',
-        name: 'Samsung Galaxy A52',
-        serialNumber: 'IMEI987654321',
-        type: 'Smartphone',
-        studentName: 'Alice Smith',
-        matricNumber: '21/3159',
-        registrationDate: '2024-02-18',
-        status: 'reported'
-    }
-    // Add more mock devices
-  ];
+  // Fetch devices from Supabase
+  useEffect(() => {
+    const fetchDevices = async () => {
+      if (!user) return;
+      
+      try {
+        setLoading(true);
+        
+        const { data, error } = await getAllDevices(
+          activeFilter !== 'all' ? activeFilter : undefined
+        );
+        
+        if (error) throw error;
+        
+        if (data) {
+          // Transform the data to match our component's expected format
+          const formattedDevices = data.map(device => ({
+            id: device.id,
+            name: device.name,
+            serialNumber: device.serial_number,
+            type: device.type.charAt(0).toUpperCase() + device.type.slice(1),
+            studentName: device.profiles?.full_name || 'Unknown',
+            matricNumber: device.profiles?.matric_number || 'Unknown',
+            registrationDate: device.created_at,
+            status: device.status as DeviceStatus,
+            image: device.image_url || undefined
+          }));
+          
+          setDevices(formattedDevices);
+          setTotalCount(formattedDevices.length);
+        }
+      } catch (error: any) {
+        console.error('Error fetching devices:', error);
+        toast.error('Failed to load devices');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDevices();
+  }, [user, activeFilter]);
 
   const getStatusColor = (status: DeviceStatus) => {
     switch (status) {
@@ -99,9 +114,7 @@ export const AllDevices = () => {
       device.studentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       device.matricNumber.toLowerCase().includes(searchTerm.toLowerCase());
 
-    const matchesFilter = activeFilter === 'all' || device.status === activeFilter;
-
-    return matchesSearch && matchesFilter;
+    return matchesSearch;
   });
 
   const paginatedDevices = filteredDevices.slice(
@@ -112,16 +125,61 @@ export const AllDevices = () => {
   const totalPages = Math.ceil(filteredDevices.length / itemsPerPage);
 
   const handleVerifyDevice = async (device: Device) => {
+    if (!user) {
+      toast.error('You must be logged in to verify devices');
+      return;
+    }
+    
     try {
-      // TODO: Implement API call to verify device
-      console.log('Verifying device:', device);
+      const { error } = await verifyDevice(device.id, user.id);
+      
+      if (error) throw error;
+      
+      // Update local state
+      setDevices(prevDevices => 
+        prevDevices.map(d => 
+          d.id === device.id ? { ...d, status: 'verified' } : d
+        )
+      );
+      
       toast.success('Device verified successfully');
       setSelectedDevice(null);
-      // Refresh device list
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    } catch (error) {
-      toast.error('Failed to verify device');
+    } catch (error: any) {
+      console.error('Error verifying device:', error);
+      toast.error(error.message || 'Failed to verify device');
     }
+  };
+
+  const handleExportCSV = async () => {
+    // Create CSV content from filtered devices
+    const headers = ['Device Name', 'Serial Number', 'Type', 'Student Name', 'Matric Number', 'Registration Date', 'Status'];
+    const csvRows = [
+      headers.join(','),
+      ...filteredDevices.map(device => [
+        device.name,
+        device.serialNumber,
+        device.type,
+        device.studentName,
+        device.matricNumber,
+        new Date(device.registrationDate).toLocaleDateString(),
+        device.status
+      ].join(','))
+    ];
+    
+    const csvContent = csvRows.join('\n');
+    
+    // Create a blob and download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `devices_export_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    toast.success('Export complete');
   };
 
   return (
@@ -138,13 +196,13 @@ export const AllDevices = () => {
           {/* Export/Print Buttons */}
           <div className="flex space-x-3">
             <button
-              onClick={() => {/* Handle export */}}
+              onClick={handleExportCSV}
               className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
             >
               Export CSV
             </button>
             <button
-              onClick={() => {/* Handle print */}}
+              onClick={() => window.print()}
               className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
             >
               Print List
@@ -189,92 +247,112 @@ export const AllDevices = () => {
 
         {/* Devices Table */}
         <div className="bg-white shadow-sm rounded-lg border border-gray-200">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Device Details
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Student
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Registration Date
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {paginatedDevices.map((device) => {
-                  const StatusIcon = getStatusIcon(device.status);
-                  return (
-                    <tr key={device.id}>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          {device.image && (
-                            <img
-                              src={device.image}
-                              alt={device.name}
-                              className="h-10 w-10 rounded-md mr-3 object-cover"
-                            />
-                          )}
-                          <div>
-                            <div className="text-sm font-medium text-gray-900">{device.name}</div>
-                            <div className="text-sm text-gray-500">{device.serialNumber}</div>
-                            <div className="text-sm text-gray-500">{device.type}</div>
+          {loading ? (
+            <div className="flex items-center justify-center p-12">
+              <div className="spinner"></div>
+            </div>
+          ) : filteredDevices.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Device Details
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Student
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Registration Date
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {paginatedDevices.map((device) => {
+                    const StatusIcon = getStatusIcon(device.status);
+                    return (
+                      <tr key={device.id}>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            {device.image && (
+                              <img
+                                src={device.image}
+                                alt={device.name}
+                                className="h-10 w-10 rounded-md mr-3 object-cover"
+                              />
+                            )}
+                            <div>
+                              <div className="text-sm font-medium text-gray-900">{device.name}</div>
+                              <div className="text-sm text-gray-500">{device.serialNumber}</div>
+                              <div className="text-sm text-gray-500">{device.type}</div>
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">{device.studentName}</div>
-                        <div className="text-sm text-gray-500">{device.matricNumber}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {new Date(device.registrationDate).toLocaleDateString()}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(device.status)}`}>
-                          <StatusIcon className="w-4 h-4 mr-1" />
-                          {device.status.charAt(0).toUpperCase() + device.status.slice(1)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={() => setSelectedDevice(device)}
-                            className="text-blue-600 hover:text-blue-900"
-                          >
-                            View Details
-                          </button>
-                          {device.status === 'pending' && (
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">{device.studentName}</div>
+                          <div className="text-sm text-gray-500">{device.matricNumber}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {new Date(device.registrationDate).toLocaleDateString()}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(device.status)}`}>
+                            <StatusIcon className="w-4 h-4 mr-1" />
+                            {device.status.charAt(0).toUpperCase() + device.status.slice(1)}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          <div className="flex space-x-2">
                             <button
                               onClick={() => setSelectedDevice(device)}
-                              className="text-green-600 hover:text-green-900"
+                              className="text-blue-600 hover:text-blue-900"
                             >
-                              Verify
+                              View Details
                             </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                            {device.status === 'pending' && (
+                              <button
+                                onClick={() => setSelectedDevice(device)}
+                                className="text-green-600 hover:text-green-900"
+                              >
+                                Verify
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-gray-400 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <h3 className="mt-2 text-sm font-medium text-gray-900">No devices found</h3>
+              <p className="mt-1 text-sm text-gray-500">
+                {searchTerm ? 'Try adjusting your search terms' : 'There are no devices matching your filters'}
+              </p>
+            </div>
+          )}
+
+          {totalPages > 1 && (
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+            />
+          )}
         </div>
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          onPageChange={setCurrentPage}
-        />
       </div>
+
       {selectedDevice && (
         <DeviceDetailsModal
           isOpen={!!selectedDevice}

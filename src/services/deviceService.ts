@@ -144,7 +144,7 @@ export async function uploadDeviceImage(file: File): Promise<string | null> {
       
       // Get public URL
       const { data: publicUrlData } = await supabase.storage
-        .from('gadify')
+        .from('gadgify')
         .getPublicUrl(filePath);
       
       console.log("Public URL data:", publicUrlData);

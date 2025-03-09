@@ -51,9 +51,11 @@ export async function getAllStudents(searchTerm?: string, statusFilter?: string)
   return query
 }
 
+// In profileService.ts
 export async function updateStudentStatus(studentId: string, status: 'active' | 'suspended' | 'graduated') {
   return supabase
     .from('profiles')
     .update({ status })
     .eq('id', studentId)
+    .eq('role', 'student') // Safety check to ensure we're only updating students
 }

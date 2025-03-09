@@ -1,11 +1,20 @@
-// src/components/staff/DeviceDetailsModal.tsx
+// src/components/common/DeviceDetailsModal.tsx
 import { Modal } from '../common/Modal';
-import { Device } from '../../pages/AllDevices';
 
 interface DeviceDetailsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  device: Device;
+  device: {
+    id: string;
+    name: string;
+    serialNumber: string;
+    type: string;
+    studentName: string;
+    matricNumber: string;
+    registrationDate: string;
+    status: 'verified' | 'pending' | 'reported';
+    image?: string;
+  };
   onVerify?: () => void;
 }
 
@@ -48,6 +57,21 @@ export const DeviceDetailsModal = ({ isOpen, onClose, device, onVerify }: Device
               {new Date(device.registrationDate).toLocaleDateString()}
             </p>
           </div>
+          <div>
+            <h4 className="text-sm font-medium text-gray-500">Status</h4>
+            <p className="mt-1 text-sm text-gray-900">
+              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium 
+                ${device.status === 'verified' 
+                  ? 'bg-green-100 text-green-800'
+                  : device.status === 'pending'
+                    ? 'bg-yellow-100 text-yellow-800'
+                    : 'bg-red-100 text-red-800'
+                }`}
+              >
+                {device.status.charAt(0).toUpperCase() + device.status.slice(1)}
+              </span>
+            </p>
+          </div>
         </div>
 
         {/* Student Information */}
@@ -66,7 +90,7 @@ export const DeviceDetailsModal = ({ isOpen, onClose, device, onVerify }: Device
         </div>
 
         {/* Verification Actions */}
-        {device.status === 'pending' && (
+        {device.status === 'pending' && onVerify && (
           <div className="border-t pt-4">
             <div className="flex justify-end space-x-3">
               <button

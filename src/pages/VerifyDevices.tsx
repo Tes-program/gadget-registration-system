@@ -1,9 +1,12 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // src/pages/staff/VerifyDevices.tsx
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { StaffDashboardLayout } from '../components/layout/StaffDashboardLayout';
 import { MagnifyingGlassIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 import { VerifyDeviceModal } from '../components/common/VerifyDeviceModal';
 import toast from 'react-hot-toast';
+import { useSupabase } from '../context/SupabaseContext';
+import { getAllDevices, verifyDevice } from '../services/deviceService';
 
 interface PendingDevice {
   id: string;
@@ -21,48 +24,73 @@ interface PendingDevice {
 export const VerifyDevices = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDevice, setSelectedDevice] = useState<PendingDevice | null>(null);
-  const [pendingDevices, setPendingDevices] = useState<PendingDevice[]>([
-    {
-      id: '1',
-      deviceName: 'iPhone 13',
-      serialNumber: 'IMEI123456789',
-      type: 'Smartphone',
-      brand: 'Apple',
-      model: 'iPhone 13',
-      registrationDate: '2024-02-22',
-      studentName: 'John Doe',
-      matricNumber: '21/3157'
-    },
-    {
-      id: '2',
-      deviceName: 'MacBook Pro',
-      serialNumber: 'C02G23ZTMD6R',
-      type: 'Laptop',
-      brand: 'Apple',
-      model: 'MacBook Pro 2023',
-      registrationDate: '2024-02-21',
-      studentName: 'Jane Smith',
-      matricNumber: '21/1182'
-    }
-    // Add more mock data as needed
-  ]);
+  const [pendingDevices, setPendingDevices] = useState<PendingDevice[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { user } = useSupabase();
+
+  // Fetch pending devices from Supabase
+  useEffect(() => {
+    const fetchPendingDevices = async () => {
+      if (!user) return;
+      
+      try {
+        setLoading(true);
+        
+        // Get only pending devices
+        const { data, error } = await getAllDevices('pending');
+        
+        if (error) throw error;
+        
+        if (data) {
+          // Transform the data to match our component's expected format
+          const formattedDevices = data.map(device => ({
+            id: device.id,
+            deviceName: device.name,
+            serialNumber: device.serial_number,
+            type: device.type.charAt(0).toUpperCase() + device.type.slice(1),
+            brand: device.brand,
+            model: device.model,
+            registrationDate: device.created_at,
+            studentName: device.profiles?.full_name || 'Unknown',
+            matricNumber: device.profiles?.matric_number || 'Unknown',
+            imageUrl: device.image_url || undefined
+          }));
+          
+          setPendingDevices(formattedDevices);
+        }
+      } catch (error: any) {
+        console.error('Error fetching pending devices:', error);
+        toast.error(error.message || 'Failed to load pending devices');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPendingDevices();
+  }, [user]);
 
   const handleVerifyDevice = async (deviceId: string, notes: string) => {
+    if (!user) {
+      toast.error('You must be logged in to verify devices');
+      return Promise.reject(new Error('Not authenticated'));
+    }
+    
     try {
-      // In a real app, this would be an API call
-      console.log(`Verifying device ${deviceId} with notes: ${notes}`);
+      const { error } = await verifyDevice(deviceId, user.id, notes);
       
-      // Update the local state to remove the verified device
+      if (error) throw error;
+      
+      // Update local state to remove the verified device
       setPendingDevices(prevDevices => 
         prevDevices.filter(device => device.id !== deviceId)
       );
       
       toast.success('Device verified successfully');
       return Promise.resolve();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error verifying device:', error);
-      toast.error('Failed to verify device');
-      return Promise.reject();
+      toast.error(error.message || 'Failed to verify device');
+      return Promise.reject(error);
     }
   };
 
@@ -100,7 +128,11 @@ export const VerifyDevices = () => {
         </div>
 
         {/* Pending Devices */}
-        {filteredDevices.length > 0 ? (
+        {loading ? (
+          <div className="flex items-center justify-center p-12">
+            <div className="spinner"></div>
+          </div>
+        ) : filteredDevices.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredDevices.map((device) => (
               <div
@@ -118,6 +150,16 @@ export const VerifyDevices = () => {
                       Pending
                     </span>
                   </div>
+
+                  {device.imageUrl && (
+                    <div className="aspect-w-16 aspect-h-9">
+                      <img 
+                        src={device.imageUrl} 
+                        alt={device.deviceName}
+                        className="object-cover rounded-md"
+                      />
+                    </div>
+                  )}
 
                   <div className="space-y-3">
                     <div>

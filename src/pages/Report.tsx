@@ -1,5 +1,6 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // src/pages/staff/Reports.tsx
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { StaffDashboardLayout } from '../components/layout/StaffDashboardLayout';
 import { 
   ChartBarIcon, 
@@ -22,26 +23,11 @@ import {
   BarChart,
   Bar
 } from 'recharts';
+import { useSupabase } from '../context/SupabaseContext';
+import { supabase } from '../lib/supabase';
+import toast from 'react-hot-toast';
 
 type TimeRange = 'week' | 'month' | 'year' | 'all';
-
-// Mock data for the line chart
-const registrationData = [
-  { month: 'Jan', registrations: 65 },
-  { month: 'Feb', registrations: 85 },
-  { month: 'Mar', registrations: 120 },
-  { month: 'Apr', registrations: 90 },
-  { month: 'May', registrations: 110 },
-  { month: 'Jun', registrations: 95 },
-];
-
-// Mock data for the pie chart
-const deviceTypeData = [
-  { name: 'Smartphones', value: 450 },
-  { name: 'Laptops', value: 300 },
-  { name: 'Tablets', value: 200 },
-  { name: 'Others', value: 100 },
-];
 
 // Colors for the pie chart
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042'];
@@ -64,49 +50,185 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
 export const Reports = () => {
   const [timeRange, setTimeRange] = useState<TimeRange>('month');
+  const [loading, setLoading] = useState(true);
+  const { user } = useSupabase();
+  
+  // State for report data
+  const [stats, setStats] = useState({
+    totalRegistrations: 0,
+    verificationRate: 0,
+    activeDevices: 0,
+    reportedDevices: 0
+  });
+  
+  const [registrationData, setRegistrationData] = useState<{ month: string; registrations: number }[]>([]);
+  const [deviceTypeData, setDeviceTypeData] = useState<{ name: string; value: number }[]>([]);
+  const [weekdayData, setWeekdayData] = useState<{ day: string; count: number }[]>([]);
+  const [verificationStatusData, setVerificationStatusData] = useState<{ name: string; value: number }[]>([]);
+  const [recentActivity, setRecentActivity] = useState<{
+    id: string;
+    action: string;
+    device: string;
+    student: string;
+    timestamp: string;
+  }[]>([]);
 
-  // Mock statistics
-  const stats = [
-    {
-      name: 'Total Registrations',
-      value: '1,284',
-      change: '+12.5%',
-      timeframe: 'from last month',
-      icon: ChartBarIcon,
-    },
-    {
-      name: 'Verification Rate',
-      value: '94.2%',
-      change: '+4.3%',
-      timeframe: 'from last month',
-      icon: ChartPieIcon,
-    },
-    {
-      name: 'Active Devices',
-      value: '1,156',
-      change: '+8.2%',
-      timeframe: 'from last month',
-      icon: ArrowTrendingUpIcon,
-    },
-    {
-      name: 'Lost/Stolen Reports',
-      value: '23',
-      change: '-2.4%',
-      timeframe: 'from last month',
-      icon: CalendarIcon,
-    },
-  ];
+  // Fetch report data
+  useEffect(() => {
+    const fetchReportData = async () => {
+      if (!user) return;
+      
+      try {
+        setLoading(true);
+        
+        // Fetch all devices for counting
+        const { data: allDevices, error: devicesError } = await supabase
+          .from('devices')
+          .select('*');
+        
+        if (devicesError) throw devicesError;
+        
+        const totalRegistrations = allDevices?.length || 0;
+        
+        // Count devices by status
+        const pendingDevices = allDevices?.filter(d => d.status === 'pending') || [];
+        const verifiedDevices = allDevices?.filter(d => d.status === 'verified') || [];
+        const reportedDevices = allDevices?.filter(d => d.status === 'reported') || [];
+        
+        const pendingCount = pendingDevices.length;
+        const verifiedCount = verifiedDevices.length;
+        const reportedCount = reportedDevices.length;
+        
+        // Calculate verification rate and active devices
+        const verificationRate = totalRegistrations > 0 
+          ? Math.round((verifiedCount / totalRegistrations) * 100) 
+          : 0;
+        const activeDevices = verifiedCount + pendingCount;
+        
+        setStats({
+          totalRegistrations,
+          verificationRate,
+          activeDevices,
+          reportedDevices: reportedCount
+        });
+        
+        // Process monthly data for chart
+        const monthlyRegistrations = processMonthlyData(allDevices || []);
+        setRegistrationData(monthlyRegistrations);
+        
+        // Process device type distribution
+        const deviceTypes: { [key: string]: number } = {};
+        
+        allDevices?.forEach(device => {
+          const type = device.type;
+          deviceTypes[type] = (deviceTypes[type] || 0) + 1;
+        });
+        
+        const processedTypeData = Object.keys(deviceTypes).map(type => ({
+          name: type.charAt(0).toUpperCase() + type.slice(1),
+          value: deviceTypes[type]
+        }));
+        
+        setDeviceTypeData(processedTypeData);
+        
+        // Process weekday distribution
+        const weekdayRegistrations = processWeekdayData(allDevices || []);
+        setWeekdayData(weekdayRegistrations);
+        
+        // Verification status data
+        setVerificationStatusData([
+          { name: 'Verified', value: verifiedCount },
+          { name: 'Pending', value: pendingCount },
+          { name: 'Reported', value: reportedCount }
+        ]);
+        
+        // Fetch recent activity (join with profiles to get user names)
+        const { data: recentDevices, error: recentError } = await supabase
+          .from('devices')
+          .select(`
+            id, 
+            name, 
+            created_at,
+            status,
+            verification_date,
+            profiles:user_id (full_name)
+          `)
+          .order('created_at', { ascending: false })
+          .limit(5);
 
-  const recentActivity = [
-    {
-      id: 1,
-      action: 'Device Registration',
-      device: 'iPhone 13',
-      student: 'John Doe',
-      timestamp: '2024-02-20T10:30:00',
-    },
-    // Add more activities as needed
-  ];
+        
+        if (recentError) throw recentError;
+        
+        // Process recent activity
+        const recentActivities = (recentDevices || []).map(device => ({
+          id: device.id,
+          action: device.status === 'verified' ? 'Device Verification' : 'Device Registration',
+          device: device.name,
+          student: (device.profiles as any).full_name || 'Unknown',
+          timestamp: device.verification_date || device.created_at
+        }));
+  
+        
+        setRecentActivity(recentActivities);
+        
+      } catch (error: any) {
+        console.error('Error fetching report data:', error);
+        toast.error('Failed to load report data');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchReportData();
+  }, [user, timeRange]);
+  
+  // Process monthly data for chart
+  const processMonthlyData = (data: any[]) => {
+    const months: { [key: string]: number } = {};
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    
+    // Initialize all months with 0
+    monthNames.forEach(month => {
+      months[month] = 0;
+    });
+    
+    // Count registrations per month
+    data.forEach(item => {
+      const date = new Date(item.created_at);
+      const month = monthNames[date.getMonth()];
+      months[month] += 1;
+    });
+    
+    // Convert to array format for chart
+    return Object.keys(months).map(month => ({
+      month,
+      registrations: months[month]
+    }));
+  };
+  
+  // Process weekday data for chart
+  const processWeekdayData = (data: any[]) => {
+    const days: { [key: string]: number } = {
+      'Mon': 0, 'Tue': 0, 'Wed': 0, 'Thu': 0, 'Fri': 0, 'Sat': 0, 'Sun': 0
+    };
+    
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    
+    // Count registrations per day
+    data.forEach(item => {
+      const date = new Date(item.created_at);
+      const day = dayNames[date.getDay()];
+      days[day] += 1;
+    });
+    
+    // Convert to array format for chart in correct order (Mon-Sun)
+    const orderedDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    return orderedDays.map(day => ({
+      day,
+      count: days[day]
+    }));
+  };
+
 
   return (
     <StaffDashboardLayout>
@@ -143,220 +265,271 @@ export const Reports = () => {
           </div>
         </div>
 
-        {/* Statistics Grid */}
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          {stats.map((stat) => (
-            <div
-              key={stat.name}
-              className="bg-white overflow-hidden shadow-sm rounded-lg border border-gray-200"
-            >
-              <div className="p-5">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0">
-                    <stat.icon className="h-6 w-6 text-gray-400" />
+        {loading ? (
+          <div className="flex items-center justify-center min-h-[400px]">
+            <div className="spinner"></div>
+          </div>
+        ) : (
+          <>
+            {/* Statistics Grid */}
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="bg-white overflow-hidden shadow-sm rounded-lg border border-gray-200">
+                <div className="p-5">
+                  <div className="flex items-center">
+                    <div className="flex-shrink-0">
+                      <ChartBarIcon className="h-6 w-6 text-gray-400" />
+                    </div>
+                    <div className="ml-5 w-0 flex-1">
+                      <dl>
+                        <dt className="text-sm font-medium text-gray-500 truncate">
+                          Total Registrations
+                        </dt>
+                        <dd>
+                          <div className="text-lg font-semibold text-gray-900">
+                            {stats.totalRegistrations}
+                          </div>
+                        </dd>
+                      </dl>
+                    </div>
                   </div>
-                  <div className="ml-5 w-0 flex-1">
-                    <dl>
-                      <dt className="text-sm font-medium text-gray-500 truncate">
-                        {stat.name}
-                      </dt>
-                      <dd>
-                        <div className="text-lg font-semibold text-gray-900">
-                          {stat.value}
-                        </div>
-                        <div className="flex items-baseline text-sm">
-                          <span className={`${
-                            stat.change.startsWith('+') ? 'text-green-600' : 'text-red-600'
-                          }`}>
-                            {stat.change}
-                          </span>
-                          <span className="ml-2 text-gray-500">
-                            {stat.timeframe}
-                          </span>
-                        </div>
-                      </dd>
-                    </dl>
+                </div>
+              </div>
+              
+              <div className="bg-white overflow-hidden shadow-sm rounded-lg border border-gray-200">
+                <div className="p-5">
+                  <div className="flex items-center">
+                    <div className="flex-shrink-0">
+                      <ChartPieIcon className="h-6 w-6 text-gray-400" />
+                    </div>
+                    <div className="ml-5 w-0 flex-1">
+                      <dl>
+                        <dt className="text-sm font-medium text-gray-500 truncate">
+                          Verification Rate
+                        </dt>
+                        <dd>
+                          <div className="text-lg font-semibold text-gray-900">
+                            {stats.verificationRate}%
+                          </div>
+                        </dd>
+                      </dl>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-white overflow-hidden shadow-sm rounded-lg border border-gray-200">
+                <div className="p-5">
+                  <div className="flex items-center">
+                    <div className="flex-shrink-0">
+                      <ArrowTrendingUpIcon className="h-6 w-6 text-gray-400" />
+                    </div>
+                    <div className="ml-5 w-0 flex-1">
+                      <dl>
+                        <dt className="text-sm font-medium text-gray-500 truncate">
+                          Active Devices
+                        </dt>
+                        <dd>
+                          <div className="text-lg font-semibold text-gray-900">
+                            {stats.activeDevices}
+                          </div>
+                        </dd>
+                      </dl>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-white overflow-hidden shadow-sm rounded-lg border border-gray-200">
+                <div className="p-5">
+                  <div className="flex items-center">
+                    <div className="flex-shrink-0">
+                      <CalendarIcon className="h-6 w-6 text-gray-400" />
+                    </div>
+                    <div className="ml-5 w-0 flex-1">
+                      <dl>
+                        <dt className="text-sm font-medium text-gray-500 truncate">
+                          Lost/Stolen Reports
+                        </dt>
+                        <dd>
+                          <div className="text-lg font-semibold text-gray-900">
+                            {stats.reportedDevices}
+                          </div>
+                        </dd>
+                      </dl>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          ))}
-        </div>
 
-        {/* Main Charts Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Registration Trends */}
-          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">Registration Trends</h3>
-            <p className="mt-1 text-sm text-gray-500">Device registrations over time</p>
-            <div className="mt-6 h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart
-                  data={registrationData}
-                  margin={{
-                    top: 5,
-                    right: 30,
-                    left: 20,
-                    bottom: 5,
-                  }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis
-                    dataKey="month"
-                    tick={{ fill: '#6B7280' }}
-                    tickLine={{ stroke: '#6B7280' }}
-                  />
-                  <YAxis
-                    tick={{ fill: '#6B7280' }}
-                    tickLine={{ stroke: '#6B7280' }}
-                  />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Line
-                    type="monotone"
-                    dataKey="registrations"
-                    stroke="#3B82F6"
-                    strokeWidth={2}
-                    dot={{ fill: '#3B82F6', strokeWidth: 2 }}
-                    activeDot={{ r: 8 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* Device Types Distribution */}
-          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">Device Distribution</h3>
-            <p className="mt-1 text-sm text-gray-500">Breakdown by device type</p>
-            <div className="mt-6 h-84">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={deviceTypeData}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-                    outerRadius={120}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {deviceTypeData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    formatter={(value: number) => [`${value} devices`, 'Count']}
-                    contentStyle={{
-                      backgroundColor: 'white',
-                      border: '1px solid #E5E7EB',
-                      borderRadius: '0.5rem',
-                      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                    }}
-                  />
-                  <Legend
-                    verticalAlign="bottom"
-                    height={36}
-                    formatter={(value) => (
-                      <span className="text-sm text-gray-700">{value}</span>
-                    )}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
-
-        {/* Additional Charts */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Weekly Registration Pattern */}
-          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">Weekly Pattern</h3>
-            <p className="mt-1 text-sm text-gray-500">Registration frequency by day of week</p>
-            <div className="mt-6 h-84">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={[
-                    { day: 'Mon', count: 20 },
-                    { day: 'Tue', count: 25 },
-                    { day: 'Wed', count: 30 },
-                    { day: 'Thu', count: 22 },
-                    { day: 'Fri', count: 18 },
-                    { day: 'Sat', count: 10 },
-                    { day: 'Sun', count: 5 },
-                  ]}
-                >
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="day" />
-                  <YAxis />
-                  <Tooltip />
-                  <Bar dataKey="count" fill="#8884d8">
-                    {deviceTypeData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* Verification Status */}
-          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">Verification Status</h3>
-            <p className="mt-1 text-sm text-gray-500">Current device verification status</p>
-            <div className="mt-6 h-84">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={[
-                      { name: 'Verified', value: 850 },
-                      { name: 'Pending', value: 120 },
-                      { name: 'Rejected', value: 30 },
-                    ]}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={120}
-                    fill="#8884d8"
-                    dataKey="value"
-                    label
-                  >
-                    {deviceTypeData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
-
-        {/* Recent Activity */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-          <div className="px-6 py-5 border-b border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">Recent Activity</h3>
-            <p className="mt-1 text-sm text-gray-500">Latest system events and updates</p>
-          </div>
-          <div className="divide-y divide-gray-200">
-            {recentActivity.map((activity) => (
-              <div key={activity.id} className="px-6 py-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">{activity.action}</p>
-                    <p className="text-sm text-gray-500">
-                      {activity.device} - {activity.student}
-                    </p>
-                  </div>
-                  <div className="text-sm text-gray-500">
-                    {new Date(activity.timestamp).toLocaleString()}
-                  </div>
+            {/* Main Charts Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Registration Trends */}
+              <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                <h3 className="text-lg font-medium text-gray-900">Registration Trends</h3>
+                <p className="mt-1 text-sm text-gray-500">Device registrations over time</p>
+                <div className="mt-6 h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={registrationData}
+                      margin={{
+                        top: 5,
+                        right: 30,
+                        left: 20,
+                        bottom: 5,
+                      }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis
+                        dataKey="month"
+                        tick={{ fill: '#6B7280' }}
+                        tickLine={{ stroke: '#6B7280' }}
+                      />
+                      <YAxis
+                        tick={{ fill: '#6B7280' }}
+                        tickLine={{ stroke: '#6B7280' }}
+                      />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Line
+                        type="monotone"
+                        dataKey="registrations"
+                        stroke="#3B82F6"
+                        strokeWidth={2}
+                        dot={{ fill: '#3B82F6', strokeWidth: 2 }}
+                        activeDot={{ r: 8 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
+
+              {/* Device Types Distribution */}
+              <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                <h3 className="text-lg font-medium text-gray-900">Device Distribution</h3>
+                <p className="mt-1 text-sm text-gray-500">Breakdown by device type</p>
+                <div className="mt-6 h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={deviceTypeData}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                        outerRadius={120}
+                        fill="#8884d8"
+                        dataKey="value"
+                      >
+                        {deviceTypeData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(value: number) => [`${value} devices`, 'Count']}
+                        contentStyle={{
+                          backgroundColor: 'white',
+                          border: '1px solid #E5E7EB',
+                          borderRadius: '0.5rem',
+                          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                        }}
+                      />
+                      <Legend
+                        verticalAlign="bottom"
+                        height={36}
+                        formatter={(value) => (
+                          <span className="text-sm text-gray-700">{value}</span>
+                        )}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+
+            {/* Additional Charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Weekly Registration Pattern */}
+              <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                <h3 className="text-lg font-medium text-gray-900">Weekly Pattern</h3>
+                <p className="mt-1 text-sm text-gray-500">Registration frequency by day of week</p>
+                <div className="mt-6 h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={weekdayData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="day" />
+                      <YAxis />
+                      <Tooltip />
+                      <Bar dataKey="count" fill="#8884d8">
+                        {weekdayData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Verification Status */}
+              <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                <h3 className="text-lg font-medium text-gray-900">Verification Status</h3>
+                <p className="mt-1 text-sm text-gray-500">Current device verification status</p>
+                <div className="mt-6 h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={verificationStatusData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={120}
+                        fill="#8884d8"
+                        dataKey="value"
+                        label
+                      >
+                        {verificationStatusData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+
+            {/* Recent Activity */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+              <div className="px-6 py-5 border-b border-gray-200">
+                <h3 className="text-lg font-medium text-gray-900">Recent Activity</h3>
+                <p className="mt-1 text-sm text-gray-500">Latest system events and updates</p>
+              </div>
+              <div className="divide-y divide-gray-200">
+                {recentActivity.length > 0 ? (
+                  recentActivity.map((activity) => (
+                    <div key={activity.id} className="px-6 py-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">{activity.action}</p>
+                          <p className="text-sm text-gray-500">
+                            {activity.device} - {activity.student}
+                          </p>
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          {new Date(activity.timestamp).toLocaleString()}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="px-6 py-4 text-center text-gray-500">
+                    No recent activity found
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </StaffDashboardLayout>
   );

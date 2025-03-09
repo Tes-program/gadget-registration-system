@@ -4,7 +4,7 @@ import { UseFormRegister, RegisterOptions } from 'react-hook-form';
 interface FormInputProps<T extends Record<string, unknown>> {
   label: string;
   name: keyof T;
-  type?: 'text' | 'email' | 'password' | 'tel' | 'date' | 'number';
+  type?: 'text' | 'email' | 'password' | 'tel' | 'date' | 'number' | 'time';
   register: UseFormRegister<T>;
   error?: string;
   placeholder?: string;

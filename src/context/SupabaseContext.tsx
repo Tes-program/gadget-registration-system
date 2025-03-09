@@ -20,6 +20,7 @@ type Profile = {
   study_level?: string
   hall_of_residence?: string
   home_address?: string
+  biography?: string
 }
 
 interface SupabaseContextType {
@@ -148,7 +149,7 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
 
         if (profileError) throw profileError
 
-        toast.success('Account created successfully. Please check your email for verification.')
+        toast.success('Account created successfully.')
         navigate('/login')
       }
     } catch (error: any) {
