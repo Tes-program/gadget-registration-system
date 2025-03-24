@@ -35,7 +35,7 @@ export async function updateProfile(userId: string, profileData: Partial<Profile
     .single()
 }
 
-export async function getAllStudents(searchTerm?: string, statusFilter?: string) {
+export async function getAllStudents(searchTerm?: string) {
   let query = supabase
     .from('profiles')
     .select(`

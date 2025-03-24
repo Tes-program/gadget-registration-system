@@ -5,7 +5,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Modal } from '../common/Modal';
 import { FormInput } from '../common/FormInput';
-import toast from 'react-hot-toast';
 
 interface ReportLostModalProps {
   isOpen: boolean;

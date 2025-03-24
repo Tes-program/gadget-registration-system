@@ -14,7 +14,6 @@ import { Pagination } from '../components/common/Pagination';
 import { DeviceDetailsModal } from '../components/common/DeviceDetailsModal';
 import { useSupabase } from '../context/SupabaseContext';
 import { getAllDevices, verifyDevice } from '../services/deviceService';
-import { supabase } from '../lib/supabase';
 
 // Types
 type DeviceStatus = 'verified' | 'pending' | 'reported';
@@ -39,7 +38,7 @@ export const AllDevices = () => {
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
-  const [totalCount, setTotalCount] = useState(0);
+  const [, setTotalCount] = useState(0);
   const { user } = useSupabase();
   const itemsPerPage = 10;
 

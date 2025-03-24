@@ -10,7 +10,6 @@ import { UserCircleIcon, CameraIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import { useSupabase } from '../context/SupabaseContext';
 import { getProfile, updateProfile } from '../services/profileService';
-import { supabase } from '../lib/supabase';
 
 // Define the form schema with zod
 const staffProfileSchema = z.object({
@@ -30,14 +29,13 @@ export const StaffProfile = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [profileImage, setProfileImage] = useState<string | null>(null);
-  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [, setSelectedImage] = useState<File | null>(null);
   const { user, profile: contextProfile } = useSupabase();
 
   const {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
-    reset,
     setValue
   } = useForm<StaffProfileForm>({
     resolver: zodResolver(staffProfileSchema),
@@ -114,34 +112,34 @@ export const StaffProfile = () => {
     }
   };
 
-  const uploadProfileImage = async (file: File): Promise<string | null> => {
-    try {
-      // Create a unique file name
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}.${fileExt}`;
-      const filePath = `profile-images/${fileName}`;
+  // const uploadProfileImage = async (file: File): Promise<string | null> => {
+  //   try {
+  //     // Create a unique file name
+  //     const fileExt = file.name.split('.').pop();
+  //     const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}.${fileExt}`;
+  //     const filePath = `profile-images/${fileName}`;
       
-      // Upload the file
-      const { error: uploadError } = await supabase.storage
-        .from('gadify')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: true
-        });
+  //     // Upload the file
+  //     const { error: uploadError } = await supabase.storage
+  //       .from('gadify')
+  //       .upload(filePath, file, {
+  //         cacheControl: '3600',
+  //         upsert: true
+  //       });
         
-      if (uploadError) throw uploadError;
+  //     if (uploadError) throw uploadError;
       
-      // Get public URL
-      const { data: publicUrlData } = await supabase.storage
-        .from('gadify')
-        .getPublicUrl(filePath);
+  //     // Get public URL
+  //     const { data: publicUrlData } = await supabase.storage
+  //       .from('gadify')
+  //       .getPublicUrl(filePath);
       
-      return publicUrlData.publicUrl;
-    } catch (error) {
-      console.error('Error uploading profile image:', error);
-      return null;
-    }
-  };
+  //     return publicUrlData.publicUrl;
+  //   } catch (error) {
+  //     console.error('Error uploading profile image:', error);
+  //     return null;
+  //   }
+  // };
 
   const onSubmit = async (data: StaffProfileForm) => {
     if (!user) {

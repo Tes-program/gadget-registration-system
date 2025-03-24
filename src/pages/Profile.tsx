@@ -34,7 +34,6 @@ export const Profile = () => {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
-    reset,
     setValue,
     watch
   } = useForm<ProfileForm>({

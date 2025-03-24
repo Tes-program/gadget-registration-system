@@ -12,7 +12,7 @@ import { Modal } from '../components/common/Modal';
 import toast from 'react-hot-toast';
 import { useSupabase } from '../context/SupabaseContext';
 import { supabase } from '../lib/supabase';
-import { getAllStudents, updateStudentStatus } from '../services/profileService';
+import { updateStudentStatus } from '../services/profileService';
 
 interface Student {
   id: string;

@@ -33,7 +33,7 @@ type TimeRange = 'week' | 'month' | 'year' | 'all';
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042'];
 
 // Custom tooltip for the line chart
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     return (
@@ -420,7 +420,7 @@ export const Reports = () => {
                         fill="#8884d8"
                         dataKey="value"
                       >
-                        {deviceTypeData.map((entry, index) => (
+                        {deviceTypeData.map((_entry, index) => (
                           <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                         ))}
                       </Pie>
@@ -460,7 +460,7 @@ export const Reports = () => {
                       <YAxis />
                       <Tooltip />
                       <Bar dataKey="count" fill="#8884d8">
-                        {weekdayData.map((entry, index) => (
+                        {weekdayData.map((_entry, index) => (
                           <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                         ))}
                       </Bar>
@@ -486,7 +486,7 @@ export const Reports = () => {
                         dataKey="value"
                         label
                       >
-                        {verificationStatusData.map((entry, index) => (
+                        {verificationStatusData.map((_entry, index) => (
                           <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                         ))}
                       </Pie>

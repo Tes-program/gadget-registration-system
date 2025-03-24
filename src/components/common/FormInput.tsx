@@ -1,9 +1,9 @@
 // src/components/common/FormInput.tsx
-import { UseFormRegister, RegisterOptions } from 'react-hook-form';
+import { UseFormRegister, RegisterOptions, Path } from 'react-hook-form';
 
 interface FormInputProps<T extends Record<string, unknown>> {
   label: string;
-  name: keyof T;
+  name: Path<T>;
   type?: 'text' | 'email' | 'password' | 'tel' | 'date' | 'number' | 'time';
   register: UseFormRegister<T>;
   error?: string;
@@ -11,7 +11,7 @@ interface FormInputProps<T extends Record<string, unknown>> {
   disabled?: boolean;
   required?: boolean;
   className?: string;
-  registerOptions?: RegisterOptions;
+  registerOptions?: RegisterOptions<T, Path<T>>;
   autoComplete?: string;
   defaultValue?: string;
   readOnly?: boolean;

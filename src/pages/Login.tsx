@@ -2,7 +2,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { AuthLayout } from "../components/layout/AuthLayout";
 import { FormInput } from "../components/common/FormInput";
 import { useSupabase } from "../context/SupabaseContext";
@@ -17,7 +17,6 @@ type LoginForm = z.infer<typeof loginSchema>;
 
 export const Login = () => {
   const { signIn } = useSupabase();
-  const navigate = useNavigate();
 
   const {
     register,
@@ -32,6 +31,7 @@ export const Login = () => {
     try {
       await signIn(data.email, data.password);
       // Navigation will be handled by the signIn function in SupabaseContext
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       console.error("Login error:", error);
       
