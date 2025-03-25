@@ -1,4 +1,4 @@
-// src/components/student/DeviceDetails.tsx
+// src/pages/DeviceDetails.tsx
 import { useState, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -8,7 +8,7 @@ import { FormInput } from '../components/common/FormInput';
 import toast from 'react-hot-toast';
 import { useSupabase } from '../context/SupabaseContext';
 import { supabase } from '../lib/supabase';
-import { uploadDeviceImage } from '../services/deviceService';
+import { uploadDeviceImage, deleteDevice } from '../services/deviceService';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 
 interface DeviceDetailsProps {
@@ -26,6 +26,7 @@ interface DeviceDetailsProps {
     imageUrl?: string;
     additionalDetails?: string;
   };
+  onDeviceDeleted?: (deviceId: string) => void;
 }
 
 const deviceUpdateSchema = z.object({
@@ -43,13 +44,15 @@ type DeviceUpdateForm = z.infer<typeof deviceUpdateSchema>;
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
 
-export const DeviceDetails = ({ isOpen, onClose, device }: DeviceDetailsProps) => {
+export const DeviceDetails = ({ isOpen, onClose, device, onDeviceDeleted }: DeviceDetailsProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [currentImage, setCurrentImage] = useState(device.imageUrl);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [imageChanged, setImageChanged] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const { user } = useSupabase();
 
   const {
@@ -182,6 +185,34 @@ export const DeviceDetails = ({ isOpen, onClose, device }: DeviceDetailsProps) =
     // Reset file input
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
+    }
+  };
+
+  const handleDeleteDevice = async () => {
+    if (!user) {
+      toast.error('You must be logged in to delete a device');
+      return;
+    }
+    
+    setIsDeleting(true);
+    try {
+      const { error } = await deleteDevice(device.id, user.id);
+      
+      if (error) throw error;
+      
+      toast.success('Device deleted successfully');
+      onClose();
+      
+      // Call the callback to update the device list
+      if (onDeviceDeleted) {
+        onDeviceDeleted(device.id);
+      }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to delete device');
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteConfirmation(false);
     }
   };
 
@@ -362,7 +393,13 @@ export const DeviceDetails = ({ isOpen, onClose, device }: DeviceDetailsProps) =
               </div>
             )}
 
-            <div className="flex justify-end space-x-3">
+            <div className="flex justify-between space-x-3">
+              <button
+                onClick={() => setShowDeleteConfirmation(true)}
+                className="px-4 py-2 bg-red-600 text-white rounded-md text-sm font-medium hover:bg-red-700"
+              >
+                Delete Device
+              </button>
               <button
                 onClick={() => setIsEditing(true)}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700"
@@ -373,6 +410,33 @@ export const DeviceDetails = ({ isOpen, onClose, device }: DeviceDetailsProps) =
           </>
         )}
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteConfirmation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Confirm Deletion</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Are you sure you want to delete this device? This action cannot be undone.
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setShowDeleteConfirmation(false)}
+                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteDevice}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-red-600 text-white rounded-md text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+              >
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Modal>
   );
 };

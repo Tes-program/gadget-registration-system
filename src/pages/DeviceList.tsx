@@ -1,3 +1,4 @@
+// Update in src/pages/DeviceList.tsx
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // src/pages/student/DeviceList.tsx
 import { DashboardLayout } from "../components/layout/DashboardLayout";
@@ -138,6 +139,12 @@ export const DeviceList = () => {
     }
   };
 
+  const handleDeviceDeleted = (deletedDeviceId: string) => {
+    // Update the devices list to remove the deleted device
+    setDevices(prevDevices => prevDevices.filter(device => device.id !== deletedDeviceId));
+    toast.success('Device removed from your list');
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -231,7 +238,6 @@ export const DeviceList = () => {
                           </span>
                         </div>
                       </div>
-
                       <div className="pt-4 flex justify-end space-x-3">
                         <button
                           onClick={() => setSelectedDevice(device)}
@@ -272,6 +278,7 @@ export const DeviceList = () => {
               imageUrl: selectedDevice.image_url || '',
               additionalDetails: selectedDevice.additional_details || ''
             }}
+            onDeviceDeleted={handleDeviceDeleted}
           />
         )}
 

@@ -96,6 +96,14 @@ export async function verifyDevice(deviceId: string, staffId: string, notes?: st
     .eq('id', deviceId)
 }
 
+export async function deleteDevice(deviceId: string, userId: string) {
+  return supabase
+    .from('devices')
+    .delete()
+    .eq('id', deviceId)
+    .eq('user_id', userId) // Security check to ensure users can only delete their own devices
+}
+
 export async function uploadDeviceImage(file: File): Promise<string | null> {
     if (!file) {
       console.log("No file provided to upload");
